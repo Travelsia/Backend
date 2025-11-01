@@ -17,7 +17,12 @@ export function authenticate(req, res, next) {
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
-        req.user = decoded;
+        // Mapear 'sub' (JWT standard) a 'id' para facilitar el uso en la aplicación
+        req.user = {
+            id: decoded.sub,
+            role: decoded.role,
+            sub: decoded.sub // Mantener por compatibilidad
+        };
         next();
     } catch {
         res.status(401).json({ error: "Token inválido o expirado" });

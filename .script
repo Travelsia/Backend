@@ -13,3 +13,20 @@ CREATE TABLE refresh_tokens (
   token TEXT UNIQUE NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Contexto de Planificación
+CREATE TABLE plan_requests (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  destination VARCHAR(200) NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  budget_amount DECIMAL(10,2) NOT NULL,
+  budget_currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+  interests TEXT[], -- Array de intereses opcionales
+  status VARCHAR(20) DEFAULT 'pending', -- pending, draft_generated, completed
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT valid_date_range CHECK (end_date >= start_date),
+  CONSTRAINT valid_budget CHECK (budget_amount >= 0)
+);

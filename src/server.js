@@ -4,6 +4,7 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import authRoutes from "./routes/auth.routes.js";
+import planningRoutes from "./routes/planning.routes.js";
 import { authenticate, requireRole } from "./middlewares/auth.js";
 
 dotenv.config();
@@ -15,6 +16,7 @@ app.use(cors({ origin: process.env.CORS_ORIGIN, credentials: true }));
 app.use(cookieParser());
 
 app.use("/auth", authRoutes);
+app.use("/planning", planningRoutes);
 
 // Ejemplo de ruta protegida
 app.get("/me", authenticate, (req, res) => res.json({ user: req.user }));
