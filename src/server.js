@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import authRoutes from "./routes/auth.routes.js";
 import planningRoutes from "./routes/planning.routes.js";
 import { authenticate, requireRole } from "./middlewares/auth.js";
+import usersRoutes from "./routes/users.routes.js";
 
 dotenv.config();
 
@@ -19,7 +20,8 @@ app.use("/auth", authRoutes);
 app.use("/planning", planningRoutes);
 
 // Ejemplo de ruta protegida
-app.get("/me", authenticate, (req, res) => res.json({ user: req.user }));
 app.get("/admin", authenticate, requireRole("admin"), (req, res) => res.json({ status: "ok", time: new Date().toISOString() }));
+
+app.use("/users", usersRoutes);
 
 app.listen(process.env.PORT, () => console.log(`🚀 Server running on http://localhost:${process.env.PORT}`));

@@ -36,5 +36,11 @@ export const userService = {
     async rotateRefreshToken(userId, oldToken, newToken) {
         await pool.query("DELETE FROM refresh_tokens WHERE user_id = $1 AND token = $2", [userId, oldToken]);
         await pool.query("INSERT INTO refresh_tokens (user_id, token) VALUES ($1, $2)", [userId, newToken]);
-    }
+    },
+    // Dentro de userService
+    async findById(id) {
+        const result = await pool.query("SELECT * FROM users WHERE id = $1", [id]);
+        return result.rows[0];
+    },
+
 };
