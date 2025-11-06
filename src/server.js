@@ -9,6 +9,7 @@ import itineraryRoutes from "./routes/itinerary.routes.js";
 import { integrationRoutes } from "./routes/integration.routes.js";
 import { sharingRoutes } from "./routes/sharing.routes.js";
 import { authenticate, requireRole } from "./middlewares/auth.js";
+import usersRoutes from "./routes/users.routes.js";
 
 dotenv.config();
 
@@ -25,7 +26,8 @@ app.use("/integrations", integrationRoutes);
 app.use("/sharing", sharingRoutes);
 
 // Ejemplo de ruta protegida
-app.get("/me", authenticate, (req, res) => res.json({ user: req.user }));
 app.get("/admin", authenticate, requireRole("admin"), (req, res) => res.json({ status: "ok", time: new Date().toISOString() }));
+
+app.use("/users", usersRoutes);
 
 app.listen(process.env.PORT, () => console.log(`🚀 Server running on http://localhost:${process.env.PORT}`));
