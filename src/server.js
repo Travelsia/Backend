@@ -5,6 +5,9 @@ import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import authRoutes from "./routes/auth.routes.js";
 import planningRoutes from "./routes/planning.routes.js";
+import itineraryRoutes from "./routes/itinerary.routes.js";
+import { integrationRoutes } from "./routes/integration.routes.js";
+import { sharingRoutes } from "./routes/sharing.routes.js";
 import { authenticate, requireRole } from "./middlewares/auth.js";
 
 dotenv.config();
@@ -17,6 +20,9 @@ app.use(cookieParser());
 
 app.use("/auth", authRoutes);
 app.use("/planning", planningRoutes);
+app.use("/itineraries", itineraryRoutes);
+app.use("/integrations", integrationRoutes);
+app.use("/sharing", sharingRoutes);
 
 // Ejemplo de ruta protegida
 app.get("/me", authenticate, (req, res) => res.json({ user: req.user }));
