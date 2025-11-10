@@ -18,7 +18,8 @@ src/
 │   ├── aggregates/           # Agregados (raíces de consistencia)
 │   │   ├── SolicitudPlan.js
 │   │   ├── Itinerario.js
-│   │   └── BusquedaVuelos.js
+│   │   ├── BusquedaVuelos.js
+│   │   └── Comparticion.js
 │   ├── entities/             # Entidades
 │   │   ├── Dia.js
 │   │   └── Actividad.js
@@ -29,6 +30,9 @@ src/
 │   │   ├── TimeSlot.js
 │   │   ├── ActividadTipo.js
 │   │   ├── EstadoActividad.js
+│   │   ├── EstadoComparticion.js
+│   │   ├── Permiso.js
+│   │   ├── LinkComparticion.js
 │   │   ├── IATA.js
 │   │   ├── Cabina.js
 │   │   ├── Segmento.js
@@ -40,19 +44,26 @@ src/
 │   ├── repositories/         # Persistencia
 │   │   ├── PlanRequestRepository.js
 │   │   ├── ItinerarioRepository.js
-│   │   └── BusquedaVuelosRepository.js
+│   │   ├── BusquedaVuelosRepository.js
+│   │   ├── SharedItineraryRepository.js
+│   │   └── GoogleSheetsRepository.js
 │   └── adapters/             # Anti-Corruption Layers
-│       └── AmadeusFlightAdapter.js
+│       ├── AmadeusFlightAdapter.js
+│       └── GoogleSheetsAdapter.js
 ├── services/                 # Capa de Aplicación (casos de uso)
 │   ├── userService.js
 │   ├── planningService.js
 │   ├── itinerarioService.js
-│   └── integrationService.js
+│   ├── integrationService.js
+│   ├── sharingService.js
+│   └── googleSheetsService.js
 ├── routes/                   # API REST
 │   ├── auth.routes.js
 │   ├── planning.routes.js
 │   ├── itinerary.routes.js
-│   └── integration.routes.js
+│   ├── integration.routes.js
+│   ├── sharing.routes.js
+│   └── sheets.routes.js
 ├── middlewares/              # Middlewares
 │   └── auth.js
 ├── db.js                     # Conexión PostgreSQL
@@ -77,16 +88,22 @@ src/
 - Cálculos financieros en tiempo real
 - Estados: borrador → publicado → archivado
 
-### 4. **Integraciones** ✅ **NUEVO**
+### 4. **Integraciones (Amadeus)** ✅
 - Búsqueda de vuelos con Amadeus API
 - Cache inteligente (15 min TTL)
 - Filtros y ordenamiento avanzado
 - Integración automática con itinerarios
 
-### 5. **Colaboración** 🚧 (Pendiente)
-- Compartir itinerarios
-- Permisos multi-usuario
-- Notificaciones
+### 5. **Colaboración** ✅
+- Compartir itinerarios con links únicos
+- Permisos multi-usuario (PROPIETARIO, EDITOR, LECTOR)
+- Estados: PENDIENTE → ACEPTADO / RECHAZADO / REVOCADO
+
+### 6. **Google Sheets** ✅ **NUEVO**
+- Exportación automática de itinerarios a Google Sheets
+- Sincronización bidireccional
+- 4 hojas: Resumen, Días, Actividades, Presupuesto
+- Integración directa con AppSheet
 
 ## 📦 Instalación
 
@@ -134,6 +151,9 @@ CORS_ORIGIN=http://localhost:3000
 AMADEUS_CLIENT_ID=your_client_id
 AMADEUS_CLIENT_SECRET=your_client_secret
 AMADEUS_TEST_MODE=true
+
+# Google Sheets (Opcional)
+GOOGLE_SERVICE_ACCOUNT_KEY={"type":"service_account",...}
 ```
 
 ### Obtener Credenciales de Amadeus

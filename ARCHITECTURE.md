@@ -237,6 +237,41 @@ Backend/
 - **Endpoints:** 12 rutas (`/sharing/*`)
 - **Base de datos:** `shared_itineraries`
 
+---
+
+### 6. Google Sheets ✅ **NUEVO**
+**Responsabilidad:** Exportar itinerarios a Google Sheets para alimentar AppSheet
+
+**Componentes:**
+- **ACL:** `GoogleSheetsAdapter`
+- **Repository:** `GoogleSheetsRepository`
+- **Service:** `GoogleSheetsService`
+- **Endpoints:** 6 rutas (`/sheets/*`)
+- **Base de datos:** `google_sheets_exports`
+- **Integración:** Google Sheets API + Google Drive API
+
+**Características:**
+- ✓ Autenticación con Service Account (simple)
+- ✓ Exportación completa del itinerario
+- ✓ 4 hojas: Resumen, Días, Actividades, Presupuesto
+- ✓ Sincronización automática
+- ✓ Permisos públicos (lectura) para AppSheet
+- ✓ Vínculos persistentes (un itinerario = un spreadsheet)
+
+**Estructura del spreadsheet:**
+- **Hoja 1 - Resumen:** Info general (título, fechas, presupuesto, estado)
+- **Hoja 2 - Días:** Vista agregada por día
+- **Hoja 3 - Actividades:** Tabla principal con todas las actividades (14 columnas)
+- **Hoja 4 - Presupuesto:** Análisis financiero por tipo
+
+**Casos de uso:**
+1. Exportar itinerario (create/update)
+2. Obtener info del sheet vinculado
+3. Sincronizar spreadsheet
+4. Listar todos los sheets del usuario
+5. Desvincular sheet
+6. Verificar estado de la integración
+
 **Sistema de permisos:**
 - **PROPIETARIO:** Control total (solo el creador)
 - **EDITOR:** Puede modificar contenido
@@ -528,13 +563,13 @@ CREATE INDEX idx_shared_itineraries_expires ON shared_itineraries(expires_at);
 
 ### Estadísticas
 
-- **Total tablas:** 8
+- **Total tablas:** 9
 - **Total índices:** 20+
 - **Total constraints:** 25+
 - **Relaciones (FK):** 10
 - **JSONB fields:** 2 (metadata, ofertas)
 
-## API Endpoints (47 Total)
+## API Endpoints (53 Total)
 
 ### Autenticación (IAM) - 5 endpoints
 - `POST /auth/register` - Registrar usuario
@@ -593,6 +628,14 @@ CREATE INDEX idx_shared_itineraries_expires ON shared_itineraries(expires_at);
 - `GET /sharing/stats` - Estadísticas
 - `POST /sharing/cleanup` - Limpiar expirados
 
+### Google Sheets - 6 endpoints (NUEVO)
+- `POST /sheets/export/:itineraryId` - Exportar itinerario a Google Sheets
+- `GET /sheets/itinerary/:itineraryId` - Obtener info del sheet vinculado
+- `PUT /sheets/sync/:itineraryId` - Sincronizar spreadsheet existente
+- `GET /sheets/my-sheets` - Listar todos los sheets del usuario
+- `DELETE /sheets/unlink/:itineraryId` - Desvincular sheet
+- `GET /sheets/status` - Verificar estado de Google Sheets API
+
 ## Principios DDD Aplicados
 
 ### 1. **Lenguaje Ubicuo** ✅
@@ -603,6 +646,10 @@ Conceptos del dominio real de viajeros implementados:
 ### 2. **Bounded Contexts** ✅
 - ✅ **IAM**: Gestión de usuarios y autenticación (5 endpoints)
 - ✅ **Planning**: Solicitudes de viaje (7 endpoints)
+- ✅ **Itineraries**: Planificación detallada (15 endpoints)
+- ✅ **Integrations**: ACL con Amadeus (8 endpoints)
+- ✅ **Collaboration**: Compartición colaborativa (12 endpoints)
+- ✅ **Google Sheets**: Exportación a Google Sheets + AppSheet (6 endpoints)
 - ✅ **Itineraries**: Planificación detallada (15 endpoints)
 - ✅ **Integrations**: ACL con Amadeus (8 endpoints)
 - ✅ **Collaboration**: Compartición colaborativa (12 endpoints)
@@ -686,16 +733,16 @@ Conceptos del dominio real de viajeros implementados:
 
 | Métrica | Objetivo | Estado |
 |---------|----------|--------|
-| Bounded Contexts | 5 | ✅ 5/5 (100%) |
+| Bounded Contexts | 6 | ✅ 6/6 (100%) |
 | Aggregates | 4 | ✅ 4/4 (100%) |
 | Value Objects | 14 | ✅ 14/14 (100%) |
 | Entities | 2 | ✅ 2/2 (100%) |
 | Domain Services | 2 | ✅ 2/2 (100%) |
-| Repositories | 4 | ✅ 4/4 (100%) |
-| API Endpoints | 47 | ✅ 47/47 (100%) |
-| Database Tables | 8 | ✅ 8/8 (100%) |
+| Repositories | 5 | ✅ 5/5 (100%) |
+| API Endpoints | 53 | ✅ 53/53 (100%) |
+| Database Tables | 9 | ✅ 9/9 (100%) |
 | Indexes | 20+ | ✅ Completado |
-| External Integrations | 1 (Amadeus) | ✅ Con ACL |
+| External Integrations | 2 (Amadeus, Google Sheets) | ✅ Con ACL |
 
 ### Principios DDD ✅
 - ✅ Zero dependencias circulares entre contextos

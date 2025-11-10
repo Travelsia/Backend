@@ -8,6 +8,7 @@ import planningRoutes from "./routes/planning.routes.js";
 import itineraryRoutes from "./routes/itinerary.routes.js";
 import { integrationRoutes } from "./routes/integration.routes.js";
 import { sharingRoutes } from "./routes/sharing.routes.js";
+import { googleSheetsRoutes } from "./routes/sheets.routes.js";
 import { authenticate, requireRole } from "./middlewares/auth.js";
 import usersRoutes from "./routes/users.routes.js";
 
@@ -24,6 +25,7 @@ app.use("/planning", planningRoutes);
 app.use("/itineraries", itineraryRoutes);
 app.use("/integrations", integrationRoutes);
 app.use("/sharing", sharingRoutes);
+app.use("/sheets", googleSheetsRoutes);
 
 // Ejemplo de ruta protegida
 app.get("/admin", authenticate, requireRole("admin"), (req, res) => res.json({ status: "ok", time: new Date().toISOString() }));
