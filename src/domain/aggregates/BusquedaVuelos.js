@@ -334,6 +334,63 @@ export class BusquedaVuelos {
   }
 
   static fromPersistence(data) {
+    // ofertas y filtros_aplicados ya son objetos JSONB en PostgreSQL
+    const ofertasRaw = typeof data.ofertas === 'string' 
+      ? JSON.parse(data.ofertas) 
+      : (data.ofertas || []);
+    
+    const filtrosAplicados = typeof data.filtros_aplicados === 'string'
+      ? JSON.parse(data.filtros_aplicados)
+      : (data.filtros_aplicados || {});
+
+    console.log(`🔧 fromPersistence - Ofertas raw count: ${ofertasRaw.length}`);
+    if (ofertasRaw.length > 0) {
+      console.log(`🔧 Primera oferta tiene segmentos:`, Array.isArray(ofertasRaw[0]?.segmentos));
+      console.log(`🔧 Cantidad segmentos:`, ofertasRaw[0]?.segmentos?.length);
+    }
+
+    // Reconstruir ofertas desde formato plano JSONB
+    // Los datos tienen segmentos directamente, no itinerarios
+    const ofertas = ofertasRaw.map(oferta => {
+      // Extraer precio
+      const precio = typeof oferta.precio === 'object' ? oferta.precio.amount : oferta.precio;
+      const moneda = typeof oferta.precio === 'object' ? oferta.precio.currency : (oferta.moneda || 'USD');
+      
+      // Normalizar segmentos - verificar que existan
+      const segmentosRaw = oferta.segmentos || [];
+      
+      if (!Array.isArray(segmentosRaw) || segmentosRaw.length === 0) {
+        console.warn(`⚠️ Oferta ${oferta.id} no tiene segmentos válidos`);
+        return null; // Filtraremos estos después
+      }
+      
+      const segmentos = segmentosRaw.map(seg => ({
+        origen: seg.origen,
+        destino: seg.destino,
+        aerolinea: seg.aerolinea,
+        numeroVuelo: seg.numeroVuelo,
+        fechaSalida: seg.fechaSalida || seg.salidaAt,
+        fechaLlegada: seg.fechaLlegada || seg.llegadaAt,
+        duracion: seg.duracion,
+        cabina: typeof seg.cabina === 'object' ? seg.cabina.tipo : (seg.cabina || 'ECONOMY')
+      }));
+
+      // OfertaVuelo espera segmentos directamente, no itinerarios
+      return {
+        id: oferta.id,
+        segmentos: segmentos, // Aquí van los segmentos directamente
+        precio: {
+          amount: precio,
+          currency: moneda
+        },
+        asientosDisponibles: oferta.asientosDisponibles,
+        validez: oferta.validez,
+        esReembolsable: oferta.esReembolsable || false,
+        equipajeIncluido: oferta.equipajeIncluido || {},
+        metadata: {}
+      };
+    }).filter(o => o !== null); // Filtrar ofertas inválidas
+
     return new BusquedaVuelos({
       id: data.id,
       userId: data.user_id,
@@ -342,11 +399,11 @@ export class BusquedaVuelos {
       fechaSalida: data.fecha_salida,
       fechaRegreso: data.fecha_regreso,
       numeroPasajeros: data.numero_pasajeros,
-      cabina: data.cabina,
-      ofertas: JSON.parse(data.ofertas || '[]'),
+      cabina: typeof data.cabina === 'object' ? data.cabina.tipo : data.cabina,
+      ofertas: ofertas,
       creadoEn: data.creado_en,
       expiraEn: data.expira_en,
-      filtrosAplicados: JSON.parse(data.filtros_aplicados || '{}')
+      filtrosAplicados: filtrosAplicados
     });
   }
 

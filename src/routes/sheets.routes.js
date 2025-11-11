@@ -36,8 +36,10 @@ const googleSheetsService = googleSheetsAdapter
   : null;
 
 /**
- * POST /sheets/export/:itineraryId
+ * POST /sheets/export/:itineraryId?searchId=xxx
  * Exportar itinerario a Google Sheets (crea o actualiza)
+ * Query params:
+ * - searchId: ID de búsqueda de vuelos para incluir ofertas (opcional)
  */
 router.post('/export/:itineraryId', authenticate, async (req, res) => {
   try {
@@ -48,10 +50,12 @@ router.post('/export/:itineraryId', authenticate, async (req, res) => {
     }
 
     const { itineraryId } = req.params;
+    const { searchId } = req.query;
 
     const resultado = await googleSheetsService.exportarItinerario(
       parseInt(itineraryId),
-      req.user.id
+      req.user.id,
+      searchId
     );
 
     res.status(resultado.esNuevo ? 201 : 200).json(resultado);

@@ -181,22 +181,15 @@ export class OfertaVuelo {
   toJSON() {
     return {
       id: this.#id,
-      origen: this.origen.toJSON(),
-      destino: this.destino.toJSON(),
-      fechaSalida: this.fechaSalida.toISOString(),
-      fechaLlegada: this.fechaLlegada.toISOString(),
+      // origen y destino son derivados de segmentos, no los incluimos para evitar duplicación
       segmentos: this.#segmentos.map(s => s.toJSON()),
       precio: this.#precio.toJSON(),
       asientosDisponibles: this.#asientosDisponibles,
       validez: this.#validez?.toISOString(),
       esReembolsable: this.#esReembolsable,
-      equipajeIncluido: this.#equipajeIncluido,
-      esVueloDirecto: this.esVueloDirecto,
-      numeroEscalas: this.numeroEscalas,
-      escalas: this.getEscalas(),
-      duracionTotal: this.duracionTotal,
-      duracionTotalHoras: this.duracionTotalHoras,
-      aerolineas: this.getAerolineas()
+      equipajeIncluido: this.#equipajeIncluido
+      // Campos derivados (para lectura, no para reconstrucción):
+      // origen, destino, fechaSalida, fechaLlegada se calculan desde segmentos
     };
   }
 

@@ -14,8 +14,11 @@ export class GoogleSheetsService {
 
   /**
    * Caso de uso: Exportar itinerario a Google Sheets
+   * @param {number} itinerarioId - ID del itinerario
+   * @param {number} userId - ID del usuario
+   * @param {string} searchId - ID de búsqueda de vuelos (opcional)
    */
-  async exportarItinerario(itinerarioId, userId) {
+  async exportarItinerario(itinerarioId, userId, searchId = null) {
     try {
       // 1. Obtener itinerario
       const itinerario = await this.#itinerarioRepository.findById(itinerarioId);
@@ -29,7 +32,43 @@ export class GoogleSheetsService {
         throw new Error('No tiene permisos para exportar este itinerario');
       }
 
-      // 2. Verificar si ya existe una exportación
+      // 2. Obtener ofertas de vuelos si se proporcionó searchId
+      let ofertas = [];
+      if (searchId) {
+        console.log(`🔍 Buscando vuelos con searchId: ${searchId}`);
+        try {
+          // Importar BusquedaVuelosRepository y pool dinámicamente
+          const { BusquedaVuelosRepository } = await import('../infrastructure/repositories/BusquedaVuelosRepository.js');
+          const { pool } = await import('../db.js');
+          const busquedaRepo = new BusquedaVuelosRepository(pool);
+          const busqueda = await busquedaRepo.findById(searchId);
+          
+          console.log(`📦 Búsqueda encontrada:`, busqueda ? 'SI' : 'NO');
+          
+          if (busqueda) {
+            console.log(`📊 Tipo de búsqueda:`, typeof busqueda);
+            console.log(`📊 Tiene propiedad ofertas:`, 'ofertas' in busqueda);
+            console.log(`📊 Ofertas es array:`, Array.isArray(busqueda.ofertas));
+            console.log(`📊 Cantidad de ofertas en busqueda:`, busqueda.ofertas?.length || 0);
+            
+            // Intentar obtener ofertas del objeto
+            ofertas = busqueda.ofertas || [];
+            console.log(`✅ Ofertas a exportar: ${ofertas.length}`);
+            
+            if (ofertas.length > 0) {
+              console.log(`📋 Primer oferta (muestra):`, JSON.stringify(ofertas[0]).substring(0, 200));
+            }
+          } else {
+            console.warn(`⚠️ No se encontró búsqueda con ID: ${searchId}`);
+          }
+        } catch (error) {
+          console.error(`❌ Error obteniendo vuelos:`, error);
+          console.error(`❌ Stack:`, error.stack);
+          // Continuar sin vuelos en caso de error
+        }
+      }
+
+      // 3. Verificar si ya existe una exportación
       const exportacionExistente = await this.#googleSheetsRepository.findByItineraryId(itinerarioId);
 
       let resultado;
@@ -39,15 +78,16 @@ export class GoogleSheetsService {
         console.log(`Actualizando spreadsheet existente: ${exportacionExistente.spreadsheet_id}`);
         resultado = await this.#googleSheetsAdapter.actualizarItinerario(
           exportacionExistente.spreadsheet_id,
-          itinerario
+          itinerario,
+          ofertas
         );
       } else {
         // Crear nuevo spreadsheet
         console.log('Creando nuevo spreadsheet...');
-        resultado = await this.#googleSheetsAdapter.exportarItinerario(itinerario);
+        resultado = await this.#googleSheetsAdapter.exportarItinerario(itinerario, ofertas);
       }
 
-      // 3. Guardar vínculo en BD
+      // 4. Guardar vínculo en BD
       await this.#googleSheetsRepository.save({
         itinerarioId,
         userId,
@@ -60,6 +100,7 @@ export class GoogleSheetsService {
         spreadsheetId: resultado.spreadsheetId,
         spreadsheetUrl: resultado.spreadsheetUrl,
         serviceAccountEmail: resultado.serviceAccountEmail,
+        vuelosIncluidos: resultado.vuelosIncluidos || 0,
         mensaje: exportacionExistente 
           ? 'Spreadsheet actualizado exitosamente' 
           : 'Spreadsheet creado exitosamente',
