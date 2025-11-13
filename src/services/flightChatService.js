@@ -1,0 +1,336 @@
+// src/services/flightChatService.js
+import { openai } from '../infrastructure/ai/OpenAIClient.js';
+import { IntegrationService } from './integrationService.js';
+
+/**
+ * Tipos "lógicos" para entender qué vamos a manejar
+ * (no son TypeScript, solo comentarios JSDoc para tu IDE)
+ * 
+ * @typedef {Object} FlightSearchPreferences
+ * @property {string} origen - Código IATA origen, ej. LIM
+ * @property {string[]} destinos - Lista de IATAs destino
+ * @property {{ tipo: 'exacta'|'rango', desde: string, hasta?: string }} fechaSalida
+ * @property {{ tipo: 'exacta'|'rango', desde: string, hasta?: string } | null} fechaRegreso
+ * @property {number} numeroPasajeros
+ * @property {'ECONOMY'|'PREMIUM_ECONOMY'|'BUSINESS'|'FIRST'} cabina
+ * @property {boolean} [soloDirectos]
+ * @property {number} [precioMaximo]
+ */
+
+/**
+ * Servicio de capa de aplicación para chat de vuelos con LLM
+ */
+export class FlightChatService {
+  #integrationService;
+
+  /**
+   * @param {{ integrationService: IntegrationService }} deps
+   */
+  constructor({ integrationService }) {
+    this.#integrationService = integrationService;
+  }
+
+  /**
+   * 1) Parsear mensaje del usuario → preferencias estructuradas
+   * @param {string} mensajeUsuario
+   * @returns {Promise<FlightSearchPreferences>}
+   */
+      async parseFlightPreferences(mensajeUsuario) {
+    const jsonSchema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        origen: {
+          type: 'string',
+          description: 'Código IATA del aeropuerto de origen (ej. LIM)'
+        },
+        destinos: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Lista de posibles aeropuertos destino (IATA)'
+        },
+        fechaSalida: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            tipo: { type: 'string', enum: ['exacta', 'rango'] },
+            desde: { type: 'string', description: 'Fecha mínima YYYY-MM-DD' },
+            hasta: {
+              type: 'string',
+              description:
+                'Fecha máxima YYYY-MM-DD, requerida si tipo = rango'
+            }
+          },
+          // 👇 ahora required incluye *todos* los keys: tipo, desde, hasta
+          required: ['tipo', 'desde', 'hasta']
+        },
+        fechaRegreso: {
+          type: ['object', 'null'],
+          additionalProperties: false,
+          properties: {
+            tipo: { type: 'string', enum: ['exacta', 'rango'] },
+            desde: { type: 'string' },
+            hasta: { type: 'string' }
+          },
+          // idem: todos los keys
+          required: ['tipo', 'desde', 'hasta']
+        },
+        numeroPasajeros: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 9,
+          default: 1
+        },
+        cabina: {
+          type: 'string',
+          enum: ['ECONOMY', 'PREMIUM_ECONOMY', 'BUSINESS', 'FIRST'],
+          default: 'ECONOMY'
+        },
+        soloDirectos: {
+          type: 'boolean',
+          description: 'Si el usuario quiere solo vuelos directos'
+        },
+        precioMaximo: {
+          type: 'number',
+          description: 'Presupuesto máximo aproximado en USD'
+        }
+      },
+      // 👇 en strict: true, el root también debe listar *todos* los keys
+      required: [
+        'origen',
+        'destinos',
+        'fechaSalida',
+        'fechaRegreso',
+        'numeroPasajeros',
+        'cabina',
+        'soloDirectos',
+        'precioMaximo'
+      ]
+    };
+
+    const response = await openai.responses.create({
+      model: 'gpt-5-nano',
+      input: [
+        {
+          role: 'system',
+          content:
+            'Eres un asistente experto en viajes. Tu tarea es convertir el mensaje del usuario en criterios de búsqueda de vuelos. Usa códigos IATA si es posible.'
+        },
+        {
+          role: 'user',
+          content: mensajeUsuario
+        }
+      ],
+      text: {
+        format: {
+          name: 'FlightSearchPreferences',
+          type: 'json_schema',
+          strict: true,
+          schema: jsonSchema
+        }
+      }
+    });
+
+    // ✅ forma segura con la Responses API
+    let text = response.output_text;
+
+    // fallback por si usas una versión sin output_text
+    if (!text && Array.isArray(response.output)) {
+      const first = response.output[0];
+      const content0 = first?.content?.[0];
+
+      if (content0?.type === 'output_text' && content0.text?.value) {
+        text = content0.text.value;
+      } else if (typeof content0?.text === 'string') {
+        text = content0.text;
+      }
+    }
+
+    if (typeof text !== 'string' || !text.trim()) {
+      console.dir(response, { depth: null }); // para depurar si algo viene raro
+      throw new Error('No se pudo interpretar la solicitud de vuelos');
+    }
+
+    const prefs = JSON.parse(text);
+
+
+    if (!prefs.destinos || prefs.destinos.length === 0) {
+      throw new Error(
+        'No se pudo determinar un destino. Por favor, especifique la ciudad o país de destino.'
+      );
+    }
+
+    return prefs;
+  }
+
+  /**
+   * 2) Ejecutar búsqueda de vuelos usando IntegrationService y las preferencias
+   *    Devuelve la BusquedaVuelos + las preferencias interpretadas.
+   * @param {Object} params
+   * @param {string} params.userId
+   * @param {string} params.mensajeUsuario
+   */
+  async buscarVuelosConversacional({ userId, mensajeUsuario }) {
+    // 1. Interpretar mensaje
+    const prefs = await this.parseFlightPreferences(mensajeUsuario);
+
+    // Para simplificar: usaremos el primer destino
+    const destino = prefs.destinos[0];
+
+    const fechaSalida =
+      prefs.fechaSalida.tipo === 'rango'
+        ? prefs.fechaSalida.desde
+        : prefs.fechaSalida.desde;
+
+    const fechaRegreso =
+      prefs.fechaRegreso && prefs.fechaRegreso.desde
+        ? prefs.fechaRegreso.desde
+        : null;
+
+    // 2. Reusar tu IntegrationService.buscarVuelos (ya usa Amadeus y BusquedaVuelos)
+    const busqueda = await this.#integrationService.buscarVuelos({
+      userId,
+      origen: prefs.origen,
+      destino,
+      fechaSalida,
+      fechaRegreso,
+      numeroPasajeros: prefs.numeroPasajeros,
+      cabina: prefs.cabina,
+      forzarNuevaBusqueda: false
+    });
+
+    return {
+      busqueda,
+      prefs
+    };
+  }
+
+  /**
+   * 3) Rankear y explicar ofertas usando LLM
+   * @param {Object} params
+   * @param {string} params.userId
+   * @param {string} params.busquedaId
+   * @param {string} [params.contextoUsuario] - mensaje extra tipo "prefiero evitar escalas largas"
+   */
+      async recomendarOfertas({ userId, busquedaId, contextoUsuario = '' }) {
+    const busqueda = await this.#integrationService.obtenerBusqueda(
+      busquedaId,
+      userId
+    );
+
+    const ofertas = busqueda.ofertas;
+
+    if (!ofertas || ofertas.length === 0) {
+      throw new Error('No hay ofertas de vuelo en esta búsqueda');
+    }
+
+    const topOfertas = ofertas.slice(0, 15).map((o) => o.toJSON());
+
+        // JSON Schema puro para el ranking
+    const rankingJsonSchema = {
+      type: 'object',
+      additionalProperties: false,   // 👈 importante
+      properties: {
+        recomendadas: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              ofertaId: { type: 'string' },
+              motivo: { type: 'string' },
+              etiqueta: {
+                type: 'string',
+                enum: ['MAS_BARATA', 'MEJOR_EQUILIBRIO', 'MAS_RAPIDA', 'OTRA']
+              }
+            },
+            required: ['ofertaId', 'motivo', 'etiqueta']
+          }
+        },
+        resumenTexto: {
+          type: 'string',
+          description:
+            'Explicación breve en español para mostrar al usuario final'
+        }
+      },
+      required: ['recomendadas', 'resumenTexto']
+    };
+
+
+    const systemPrompt = `
+Eres un asistente de viajes. 
+Recibirás un listado de ofertas de vuelo en JSON. 
+Cada oferta incluye segmentos, precio, duracionTotal, numeroEscalas, esVueloDirecto, etc.
+Debes seleccionar las 3 mejores opciones para un viajero típico, considerando:
+- buena relación precio / duración
+- evitar escalas innecesarias
+- priorizar vuelos directos cuando sea razonable
+Devuelve un JSON con "recomendadas" (max 3) y "resumenTexto".
+`;
+
+    const userContent = `
+Contexto del usuario (opcional): ${contextoUsuario || 'N/A'}
+Ofertas disponibles (max 15):
+${JSON.stringify(topOfertas)}
+`;
+
+    const response = await openai.responses.create({
+      model: 'gpt-5-nano',
+      input: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent }
+      ],
+      text: {
+        format: {
+          name: 'RankedFlights',    // nombre del formato
+          type: 'json_schema',
+          strict: true,
+          schema: rankingJsonSchema // 👈 aquí el schema plano
+        }
+      }
+    });
+
+    let text = response.output_text;
+
+    // fallback por si tu versión del SDK no tiene output_text
+    if (!text && Array.isArray(response.output)) {
+      const first = response.output[0];
+      const content0 = first?.content?.[0];
+
+      // puede venir como { text: { value: '...' } } o text: '...'
+      if (content0?.text?.value) {
+        text = content0.text.value;
+      } else if (typeof content0?.text === 'string') {
+        text = content0.text;
+      }
+    }
+
+    if (typeof text !== 'string' || !text.trim()) {
+      console.dir(response, { depth: null });
+      throw new Error('No se pudo generar recomendaciones de vuelos');
+    }
+
+    const ranking = JSON.parse(text);
+
+
+    const recomendadasDetalladas = ranking.recomendadas
+      .map((r) => {
+        const oferta = ofertas.find((o) => o.id === r.ofertaId);
+        if (!oferta) return null;
+
+        return {
+          oferta: oferta.toJSON(),
+          motivo: r.motivo,
+          etiqueta: r.etiqueta
+        };
+      })
+      .filter(Boolean);
+
+    return {
+      busquedaId: busqueda.id,
+      recomendadas: recomendadasDetalladas,
+      resumenTexto: ranking.resumenTexto
+    };
+  }
+
+}
