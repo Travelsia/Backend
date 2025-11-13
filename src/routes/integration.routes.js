@@ -5,6 +5,7 @@ import { ItinerarioRepository } from '../infrastructure/repositories/ItinerarioR
 import { AmadeusFlightAdapter } from '../infrastructure/adapters/AmadeusFlightAdapter.js';
 import { pool } from '../db.js';
 import { authenticate } from '../middlewares/auth.js';
+import { FlightChatService } from '../services/flightChatService.js';
 
 const router = express.Router();
 
@@ -23,6 +24,8 @@ const integrationService = new IntegrationService({
   itinerarioRepository,
   amadeusAdapter
 });
+
+const flightChatService = new FlightChatService({ integrationService });
 
 /**
  * POST /integrations/flights/search
@@ -63,6 +66,78 @@ router.post('/flights/search', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Error en búsqueda de vuelos:', error);
     res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /integrations/flights/chat/search
+ * Entradas:
+ *  - message: string (mensaje libre del usuario, en español)
+ * 
+ * Salida:
+ *  - busqueda: objeto BusquedaVuelos.toJSON()
+ *  - prefs: preferencias interpretadas por el modelo
+ */
+router.post('/flights/chat/search', authenticate, async (req, res) => {
+  try {
+    const { message } = req.body;
+
+    if (!message) {
+      return res.status(400).json({
+        error: 'El campo "message" es requerido'
+      });
+    }
+
+    const { busqueda, prefs } = await flightChatService.buscarVuelosConversacional({
+      userId: req.user.id,
+      mensajeUsuario: message
+    });
+
+    return res.status(200).json({
+      busqueda: busqueda.toJSON(),
+      prefs
+    });
+  } catch (error) {
+    console.error('Error en flights/chat/search:', error);
+    return res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /integrations/flights/chat/recommendations
+ * Entradas:
+ *  - busquedaId: string
+ *  - context?: string  (preferencias extra: "prefiero LATAM", "no quiero madrugar", etc.)
+ * 
+ * Salida:
+ *  - busquedaId
+ *  - recomendadas: [{ oferta, motivo, etiqueta }]
+ *  - resumenTexto: string
+ */
+router.post('/flights/chat/recommendations', authenticate, async (req, res) => {
+  try {
+    const { busquedaId, context } = req.body;
+
+    if (!busquedaId) {
+      return res.status(400).json({
+        error: 'El campo "busquedaId" es requerido'
+      });
+    }
+
+    const resultado = await flightChatService.recomendarOfertas({
+      userId: req.user.id,
+      busquedaId,
+      contextoUsuario: context || ''
+    });
+
+    return res.status(200).json(resultado);
+  } catch (error) {
+    console.error('Error en flights/chat/recommendations:', error);
+    return res.status(500).json({
       error: error.message
     });
   }

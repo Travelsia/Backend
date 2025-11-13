@@ -1,0 +1,136 @@
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100),
+  email VARCHAR(100) UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  role VARCHAR(20) DEFAULT 'user',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE refresh_tokens (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  token TEXT UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Contexto de Planificación
+CREATE TABLE plan_requests (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  destination VARCHAR(200) NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  budget_amount DECIMAL(10,2) NOT NULL,
+  budget_currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+  interests TEXT[], -- Array de intereses opcionales
+  status VARCHAR(20) DEFAULT 'pending', -- pending, draft_generated, completed
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT valid_date_range CHECK (end_date >= start_date),
+  CONSTRAINT valid_budget CHECK (budget_amount >= 0)
+);
+
+-- Contexto de Itinerarios
+CREATE TABLE itineraries (
+  id SERIAL PRIMARY KEY,
+  plan_request_id INTEGER REFERENCES plan_requests(id) ON DELETE SET NULL,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  titulo VARCHAR(200) NOT NULL,
+  descripcion TEXT,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  estado VARCHAR(20) DEFAULT 'borrador', -- borrador, publicado, archivado
+  moneda_base VARCHAR(3) NOT NULL DEFAULT 'USD',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT valid_itinerary_date_range CHECK (end_date >= start_date)
+);
+
+CREATE TABLE days (
+  id SERIAL PRIMARY KEY,
+  itinerary_id INTEGER REFERENCES itineraries(id) ON DELETE CASCADE,
+  fecha DATE NOT NULL,
+  numero INTEGER NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT unique_day_per_itinerary UNIQUE(itinerary_id, numero),
+  CONSTRAINT valid_day_number CHECK (numero > 0)
+);
+
+CREATE TABLE activities (
+  id SERIAL PRIMARY KEY,
+  day_id INTEGER REFERENCES days(id) ON DELETE CASCADE,
+  titulo VARCHAR(200) NOT NULL,
+  descripcion TEXT,
+  tipo VARCHAR(20) NOT NULL, -- VUELO, HOSPEDAJE, VISITA, TRANSPORTE, COMIDA, ACTIVIDAD, OTROS
+  lugar_label VARCHAR(200) NOT NULL,
+  lugar_latitude DECIMAL(10, 8),
+  lugar_longitude DECIMAL(11, 8),
+  start_time TIMESTAMP NOT NULL,
+  end_time TIMESTAMP NOT NULL,
+  costo_amount DECIMAL(10,2) NOT NULL,
+  costo_currency VARCHAR(3) NOT NULL,
+  estado VARCHAR(20) DEFAULT 'PROPUESTA', -- PROPUESTA, CONFIRMADA, CANCELADA
+  metadata_externa JSONB, -- Para almacenar referencias externas (ej: Amadeus)
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT valid_activity_time CHECK (end_time > start_time),
+  CONSTRAINT valid_activity_cost CHECK (costo_amount >= 0)
+);
+
+CREATE INDEX idx_itineraries_user ON itineraries(user_id);
+CREATE INDEX idx_itineraries_plan_request ON itineraries(plan_request_id);
+CREATE INDEX idx_days_itinerary ON days(itinerary_id);
+CREATE INDEX idx_activities_day ON activities(day_id);
+CREATE INDEX idx_activities_tipo ON activities(tipo);
+CREATE INDEX idx_activities_estado ON activities(estado);
+
+-- Contexto de Integraciones
+CREATE TABLE flight_searches (
+  id VARCHAR(100) PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  origen VARCHAR(3) NOT NULL,
+  destino VARCHAR(3) NOT NULL,
+  fecha_salida TIMESTAMP NOT NULL,
+  fecha_regreso TIMESTAMP,
+  numero_pasajeros INTEGER NOT NULL DEFAULT 1,
+  cabina VARCHAR(20) NOT NULL DEFAULT 'ECONOMY',
+  ofertas JSONB NOT NULL DEFAULT '[]',
+  creado_en TIMESTAMP DEFAULT NOW(),
+  expira_en TIMESTAMP NOT NULL,
+  filtros_aplicados JSONB DEFAULT '{}',
+  CONSTRAINT valid_passengers CHECK (numero_pasajeros >= 1 AND numero_pasajeros <= 9),
+  CONSTRAINT valid_search_dates CHECK (fecha_regreso IS NULL OR fecha_regreso > fecha_salida)
+);
+
+CREATE INDEX idx_flight_searches_user ON flight_searches(user_id);
+CREATE INDEX idx_flight_searches_criteria ON flight_searches(user_id, origen, destino, fecha_salida);
+CREATE INDEX idx_flight_searches_expiry ON flight_searches(expira_en);
+
+-- Contexto de Colaboración
+CREATE TABLE shared_itineraries (
+  id SERIAL PRIMARY KEY,
+  itinerary_id INTEGER REFERENCES itineraries(id) ON DELETE CASCADE,
+  owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  shared_with_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  shared_with_email VARCHAR(100) NOT NULL,
+  role VARCHAR(20) NOT NULL DEFAULT 'LECTOR', -- PROPIETARIO, EDITOR, LECTOR
+  share_token VARCHAR(100) UNIQUE NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  estado VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE', -- PENDIENTE, ACEPTADO, RECHAZADO, REVOCADO, EXPIRADO
+  mensaje TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  accepted_at TIMESTAMP,
+  revoked_at TIMESTAMP,
+  CONSTRAINT valid_role CHECK (role IN ('PROPIETARIO', 'EDITOR', 'LECTOR')),
+  CONSTRAINT valid_estado CHECK (estado IN ('PENDIENTE', 'ACEPTADO', 'RECHAZADO', 'REVOCADO', 'EXPIRADO')),
+  CONSTRAINT unique_active_share UNIQUE(itinerary_id, shared_with_email, estado)
+);
+
+CREATE INDEX idx_shared_itineraries_itinerary ON shared_itineraries(itinerary_id);
+CREATE INDEX idx_shared_itineraries_owner ON shared_itineraries(owner_id);
+CREATE INDEX idx_shared_itineraries_shared_with ON shared_itineraries(shared_with_id);
+CREATE INDEX idx_shared_itineraries_email ON shared_itineraries(shared_with_email);
+CREATE INDEX idx_shared_itineraries_token ON shared_itineraries(share_token);
+CREATE INDEX idx_shared_itineraries_estado ON shared_itineraries(estado);
+CREATE INDEX idx_shared_itineraries_expiry ON shared_itineraries(expires_at);
