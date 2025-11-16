@@ -1,6 +1,7 @@
 // src/services/flightChatService.js
 import { openai } from '../infrastructure/ai/OpenAIClient.js';
 import { IntegrationService } from './integrationService.js';
+import { encode, decode } from '@toon-format/toon';
 
 /**
  * Tipos "lógicos" para entender qué vamos a manejar
@@ -35,7 +36,7 @@ export class FlightChatService {
    * @param {string} mensajeUsuario
    * @returns {Promise<FlightSearchPreferences>}
    */
-      async parseFlightPreferences(mensajeUsuario) {
+  async parseFlightPreferences(mensajeUsuario) {
     const jsonSchema = {
       type: 'object',
       additionalProperties: false,
@@ -212,7 +213,7 @@ export class FlightChatService {
    * @param {string} params.busquedaId
    * @param {string} [params.contextoUsuario] - mensaje extra tipo "prefiero evitar escalas largas"
    */
-      async recomendarOfertas({ userId, busquedaId, contextoUsuario = '' }) {
+  async recomendarOfertas({ userId, busquedaId, contextoUsuario = '' }) {
     const busqueda = await this.#integrationService.obtenerBusqueda(
       busquedaId,
       userId
@@ -226,10 +227,70 @@ export class FlightChatService {
 
     const topOfertas = ofertas.slice(0, 15).map((o) => o.toJSON());
 
-        // JSON Schema puro para el ranking
+    // ⭐ TOON: empaquetamos las ofertas en un objeto y lo codificamos
+    // En TOON se recomienda usar tab (\t) y, opcionalmente, keyFolding para ahorrar tokens.
+    // const ofertasPayload = { ofertas: topOfertas };
+
+    // const ofertasToon = encode(ofertasPayload, {
+    //   delimiter: '\t',      // tabulación (suele tokenizar mejor que comas)
+    //   keyFolding: 'safe',   // aplanar claves anidadas de forma segura
+    //   flattenDepth: 3       // profundidad máxima para aplanar
+    // });
+
+    // Antes: const ofertasPayload = { ofertas: topOfertas };
+
+    const ofertasCompactas = topOfertas.map((o) => {
+      const segmentos = o.segmentos || [];
+      const primerSegmento = segmentos[0] || {};
+      const ultimoSegmento =
+        segmentos.length > 0 ? segmentos[segmentos.length - 1] : {};
+
+      const aerolineas = [
+        ...new Set(segmentos.map((s) => s.aerolinea).filter(Boolean))
+      ].join('|');
+
+      // número de escalas = tramos - 1 (mínimo 0)
+      const numeroEscalasCalc =
+        segmentos.length > 0 ? Math.max(segmentos.length - 1, 0) : null;
+
+      // duración total = suma de duraciones de cada segmento (si vienen en minutos)
+      const duracionTotalMin =
+        segmentos.length > 0
+          ? segmentos.reduce(
+              (acc, seg) => acc + (typeof seg.duracion === 'number' ? seg.duracion : 0),
+              0
+            )
+          : null;
+
+      return {
+        id: String(o.id),
+        // aquí sí hay "amount"
+        precioTotalUsd:
+          typeof o.precio?.amount === 'number' ? o.precio.amount : null,
+        esDirecto:
+          segmentos.length > 0 ? segmentos.length === 1 : null,
+        numeroEscalas: numeroEscalasCalc,
+        duracionMin: duracionTotalMin,
+        salida: primerSegmento.fechaSalida ?? null,
+        llegada: ultimoSegmento.fechaLlegada ?? null,
+        aerolineas: aerolineas || null
+      };
+    });
+
+
+
+    const ofertasPayload = { ofertas: ofertasCompactas };
+
+    const ofertasToon = encode(ofertasPayload, {
+      delimiter: '\t',     // tab suele tokenizar mejor
+      keyFolding: 'safe'   // opcional, para aplanar algunas rutas
+    });
+
+
+    // JSON Schema puro para el ranking
     const rankingJsonSchema = {
       type: 'object',
-      additionalProperties: false,   // 👈 importante
+      additionalProperties: false,
       properties: {
         recomendadas: {
           type: 'array',
@@ -256,36 +317,45 @@ export class FlightChatService {
       required: ['recomendadas', 'resumenTexto']
     };
 
-
     const systemPrompt = `
-Eres un asistente de viajes. 
-Recibirás un listado de ofertas de vuelo en JSON. 
+Eres un asistente de viajes.
+Recibirás un listado de ofertas de vuelo en formato TOON dentro de un bloque de código \`\`\`toon.
 Cada oferta incluye segmentos, precio, duracionTotal, numeroEscalas, esVueloDirecto, etc.
-Debes seleccionar las 3 mejores opciones para un viajero típico, considerando:
-- buena relación precio / duración
-- evitar escalas innecesarias
-- priorizar vuelos directos cuando sea razonable
-Devuelve un JSON con "recomendadas" (max 3) y "resumenTexto".
+
+Reglas importantes:
+- Las ofertas vienen ya estructuradas en TOON (similar a YAML/CSV).
+- NO inventes ofertas nuevas; usa sólo las que aparecen en el bloque TOON.
+- Debes seleccionar las 3 mejores opciones para un viajero típico, considerando:
+  - buena relación precio / duración
+  - evitar escalas innecesarias
+  - priorizar vuelos directos cuando sea razonable
+
+Tu respuesta DEBE seguir exactamente el JSON Schema proporcionado (RankedFlights).
+Devuelve un JSON con "recomendadas" (máx. 3) y "resumenTexto".
 `;
 
     const userContent = `
 Contexto del usuario (opcional): ${contextoUsuario || 'N/A'}
-Ofertas disponibles (max 15):
-${JSON.stringify(topOfertas)}
+
+Las ofertas están en formato TOON a continuación.
+Data is in TOON format (2-space indent, arrays show length and fields).
+\`\`\`toon
+${ofertasToon}
+\`\`\`
 `;
 
     const response = await openai.responses.create({
-      model: 'gpt-5-nano',
+      model: 'gpt-4.1-mini',
       input: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent }
       ],
       text: {
         format: {
-          name: 'RankedFlights',    // nombre del formato
+          name: 'RankedFlights',
           type: 'json_schema',
           strict: true,
-          schema: rankingJsonSchema // 👈 aquí el schema plano
+          schema: rankingJsonSchema
         }
       }
     });
@@ -297,7 +367,6 @@ ${JSON.stringify(topOfertas)}
       const first = response.output[0];
       const content0 = first?.content?.[0];
 
-      // puede venir como { text: { value: '...' } } o text: '...'
       if (content0?.text?.value) {
         text = content0.text.value;
       } else if (typeof content0?.text === 'string') {
@@ -311,7 +380,6 @@ ${JSON.stringify(topOfertas)}
     }
 
     const ranking = JSON.parse(text);
-
 
     const recomendadasDetalladas = ranking.recomendadas
       .map((r) => {
@@ -332,5 +400,4 @@ ${JSON.stringify(topOfertas)}
       resumenTexto: ranking.resumenTexto
     };
   }
-
 }
