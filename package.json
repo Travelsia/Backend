@@ -12,6 +12,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@toon-format/toon": "^1.0.0",
     "amadeus": "^11.0.0",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
